@@ -185,9 +185,9 @@ do
   attr -g proxy $i
 done
 
-# Example commands for the scrip to run
+# Example commands for the script to run
 
-
+sleep 60
 
 # Upload logs
 cp -f /var/log/boot.log /var/log/dmesg /var/log/secure /var/log/messages* /etc/cvmfs/default.* \
