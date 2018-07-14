@@ -12,10 +12,10 @@
     "min_wallclock_seconds": 50000,
     "max_wallclock_seconds": 100000,
     "max_processors": 1,
-    "root_image": "https://repo.gridpp.ac.uk/vacproject/iris/cernvm4.iso",
-    "suffix": "vacuumvpn",
+    "root_image": "https://repo.gridpp.ac.uk/vacproject/vacuumvpn/cernvm4.iso",
+    "suffix": "dev",
     "target_share": 1.0,
-    "user_data": "https://repo.gridpp.ac.uk/vacproject/iris/user_data_vacuumvpn",
+    "user_data": "https://repo.gridpp.ac.uk/vacproject/vacuumvpn/user_data_vacuumvpn",
     "user_data_file_hostcert": "hostcert.pem",
     "user_data_file_hostkey": "hostkey.pem"
    }
