@@ -1,0 +1,223 @@
+From nobody Wed Nov 18 09:59:29 2015
+Comments:
+ #
+ # Generic Cloud Init user_data template file to create CernVM4 (CentOS7) VMs
+ # which automatically join a cross-site VPN
+ #
+ # Andrew.McNab@cern.ch July 2018
+ #
+Content-Type: multipart/mixed; boundary="===============3141592653589793238=="
+MIME-Version: 1.0
+
+--===============3141592653589793238==
+MIME-Version: 1.0
+Content-Type: text/cloud-config; charset="us-ascii"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="cloud-config-file"
+
+# cloud-config
+
+cvmfs:
+    local:
+        CVMFS_REPOSITORIES: grid
+        CVMFS_HTTP_PROXY: ##user_data_option_cvmfs_proxy##
+
+--===============3141592653589793238==
+MIME-Version: 1.0
+Content-Type: text/ucernvm; charset="us-ascii"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="ucernvm-file"
+
+[ucernvm-begin]
+resize_rootfs=off
+cvmfs_http_proxy='##user_data_option_cvmfs_proxy##'
+[ucernvm-end]
+
+--===============3141592653589793238==
+MIME-Version: 1.0
+Content-Type: text/x-shellscript; charset="us-ascii"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="user_data_script"
+
+#!/bin/sh
+
+mkdir -p /var/spool/joboutputs
+(
+# Set the hostname if available; display otherwise
+hostname ##user_data_machine_hostname##
+date --utc +"%Y-%m-%d %H:%M:%S %Z user_data_script Start user_data on `hostname`"
+
+echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6
+date --utc +"%Y-%m-%d %H:%M:%S %Z Disable IPv6"
+
+# Record MJFJO if substituted here by VM lifecycle manager
+export MACHINEFEATURES='##user_data_machinefeatures_url##'
+export JOBFEATURES='##user_data_jobfeatures_url##'
+export JOBOUTPUTS='##user_data_joboutputs_url##'
+
+# Save whatever we use by other scripts
+/bin/echo -e "export MACHINEFEATURES=$MACHINEFEATURES\nexport JOBFEATURES=$JOBFEATURES\nexport JOBOUTPUTS=$JOBOUTPUTS" > /etc/profile.d/mjf.sh
+/bin/echo -e "setenv MACHINEFEATURES $MACHINEFEATURES\nsetenv JOBFEATURES $JOBFEATURES\nsetenv JOBOUTPUTS $JOBOUTPUTS" > /etc/profile.d/mjf.csh
+
+# Create a shutdown_message if ACPI shutdown signal received
+/bin/echo -e 'echo "100 VM received ACPI shutdown signal from hypervisor" > /var/spool/joboutputs/shutdown_message\n/sbin/shutdown -h now' >/etc/acpi/actions/power.sh
+chmod +x /etc/acpi/actions/power.sh
+
+# Disable TCP offloading etc - done by default
+if [ "##user_data_option_network_offload##" != "on" ] ; then
+  ethtool -K eth0 tso off gso off gro off
+fi
+
+# We never let VMs send emails (likely to be annoying errors from root)
+/sbin/iptables -A OUTPUT -p tcp --dport 25 -j DROP
+
+# Once we have finished with the metadata, stop any user process reading it later
+/sbin/iptables -A OUTPUT -d 169.254.169.254 -p tcp --dport 80 -j DROP 
+
+# Get the big 40GB+ logical partition as /scratch
+mkdir -p /scratch
+if [ -b /dev/vdb1 -a -b /dev/vdb2 ] ; then
+  # Openstack at CERN with cvm* flavor? 
+  # vda1 is boot image, vdb1 is root partition, vdb2 is unformatted
+  mkfs -q -t ext4 /dev/vdb2
+  mount /dev/vdb2 /scratch 
+elif [ -b /dev/sda1 -a -b /dev/sda2 -a -b /dev/sda3 ] ; then
+  # GCE: sda1 is boot image, sda2 is root partition, sda3 is unformatted
+  mkfs -q -t ext4 /dev/sda3
+  mount /dev/sda3 /scratch
+elif [ -b /dev/vdb1 ] ; then
+  # Openstack at CERN with hep* flavor?
+  # vda1 is boot image, vdb1 is root partition, and no vdb2
+  # Since boot image is small, can use rest of vda for /scratch
+  echo -e 'n\np\n2\n\n\nw\n'| fdisk /dev/vda
+  mkfs -q -t ext4 /dev/vda2
+  mount /dev/vda2 /scratch 
+elif [ -b /dev/vdb ] ; then
+  # Efficient virtio device
+  mkfs -q -t ext4 /dev/vdb
+  mount /dev/vdb /scratch
+elif [ -b /dev/vda1 -a -b /dev/vda2 ] ; then
+  # We just have a big vda with unused space in vda2
+  mkfs -q -t ext4 /dev/vda2
+  mount /dev/vda2 /scratch
+elif [ -b /dev/sdb ] ; then
+  # Virtual SCSI
+  mkfs -q -t ext4 /dev/sdb
+  mount /dev/sdb /scratch
+elif [ -b /dev/hdb ] ; then
+  # Virtual IDE
+  mkfs -q -t ext4 /dev/hdb
+  mount /dev/hdb /scratch
+elif [ -b /dev/xvdb ] ; then
+  # Xen virtual disk device
+  mkfs -q -t ext4 /dev/xvdb
+  mount /dev/xvdb /scratch
+else
+  date --utc +'%Y-%m-%d %H:%M:%S %Z user_data_script Missing vdb/hdb/sdb/xvdb block device for /scratch'
+  echo "500 Missing vdb/hdb/sdb block device for /scratch" > /var/spool/joboutputs/shutdown_message
+  /sbin/shutdown -h now
+  sleep 1234567890
+fi  
+
+if [ -b /dev/vda ] ; then
+  # We rely on the hypervisor's disk I/O scheduling
+  echo 'noop' > /sys/block/vda/queue/scheduler
+  echo 'noop' > /sys/block/vdb/queue/scheduler
+fi
+
+# anyone can create directories there
+chmod ugo+rwxt /scratch
+
+# Get CA certs from cvmfs
+rm -Rf /etc/grid-security/*
+ln -sf /cvmfs/grid.cern.ch/etc/grid-security/* /etc/grid-security
+export X509_CERT_DIR=/etc/grid-security/certificates
+
+# These will be picked up by login etc shells
+cat <<EOF > /etc/profile.d/grid-paths.sh
+export X509_CERT_DIR=/etc/grid-security/certificates
+export X509_VOMS_DIR=/etc/grid-security/vomsdir
+EOF
+
+if [ ! -z "##user_data_option_hostkey##" -a ! -z "##user_data_option_hostcert##" ] ; then
+  # Given full host cert/key pair
+
+  cat <<X5_EOF > /etc/grid-security/hostkey.pem
+##user_data_option_hostkey##
+X5_EOF
+
+  cat <<X5_EOF > /etc/grid-security/hostcert.pem
+##user_data_option_hostcert##
+X5_EOF
+
+  cat /etc/grid-security/hostcert.pem /etc/grid-security/hostkey.pem > /etc/grid-security/hostcertkey.pem
+
+else
+  date --utc +"%Y-%m-%d %H:%M:%S %Z user_data_option_hostkey/_hostcert defined!"
+fi
+
+chmod 0400 /etc/grid-security/*.pem 
+
+# make a first heartbeat
+echo 0.0 0.0 0.0 0.0 0.0 > /var/spool/joboutputs/heartbeat
+/usr/bin/curl --capath $X509_CERT_DIR --cert /etc/grid-security/hostcertkey.pem --cacert /etc/grid-security/hostcertkey.pem --location --upload-file /var/spool/joboutputs/heartbeat "$JOBOUTPUTS/heartbeat"
+
+# put heartbeat on MJF server every 5 minutes with a random offset
+echo -e "*/5 * * * * root sleep `expr $RANDOM / 110` ; echo \`cut -f1-3 -d' ' /proc/loadavg\` \`cat /proc/uptime\` >/var/spool/joboutputs/heartbeat ; /usr/bin/curl --capath $X509_CERT_DIR --cert /etc/grid-security/hostcertkey.pem --cacert /etc/grid-security/hostcertkey.pem --location --upload-file /var/spool/joboutputs/heartbeat $JOBOUTPUTS/vm-heartbeat ; /usr/bin/curl --capath $X509_CERT_DIR --cert /etc/grid-security/hostcertkey.pem --cacert /etc/grid-security/hostcertkey.pem --location --upload-file /var/spool/joboutputs/heartbeat $JOBOUTPUTS/heartbeat >/var/log/heartbeat.log 2>&1" >/etc/cron.d/heartbeat
+
+# We swap on the logical partition (cannot on CernVM aufs filesystem)
+# Since ext4 we can use fallocate:
+fallocate -l 4g /scratch/swapfile
+chmod 0600 /scratch/swapfile
+mkswap /scratch/swapfile 
+swapon /scratch/swapfile
+
+# Swap as little as possible
+sysctl vm.swappiness=1
+       
+# Don't want to be doing this at 4 or 5am every day!
+rm -f /etc/cron.daily/mlocate.cron
+
+# Log proxies used for cvmfs
+attr -g proxy /mnt/.ro
+for i in /cvmfs/*
+do
+  attr -g proxy $i
+done
+
+# Example commands for the scrip to run
+
+
+
+# Upload logs
+cp -f /var/log/boot.log /var/log/dmesg /var/log/secure /var/log/messages* /etc/cvmfs/default.* \
+  /var/spool/joboutputs/
+
+(
+  cd /var/spool/joboutputs
+  for i in *
+  do
+   if [ -f $i ] ; then 
+    curl --capath $X509_CERT_DIR --cert /etc/grid-security/hostcertkey.pem --cacert /etc/grid-security/hostcertkey.pem --location --upload-file "$i" \
+     "$JOBOUTPUTS/"
+
+    if [ "$DEPO_BASE_URL" != "" ] ; then
+      # This will be replaced by extended pilot logging??
+      curl --capath $X509_CERT_DIR --cert /etc/grid-security/hostcertkey.pem --cacert /etc/grid-security/hostcertkey.pem --location --upload-file "$i" \
+        "$DEPO_BASE_URL/##user_data_space##/##user_data_machinetype##/##user_data_machine_hostname##/##user_data_uuid##/"
+    fi
+   fi
+  done
+)
+
+# Try conventional shutdown
+date --utc +'%Y-%m-%d %H:%M:%S %Z user_data_script Run /sbin/shutdown -h now'
+/sbin/shutdown -h now
+sleep 60
+
+# If that fails, do an instant reboot
+date --utc +'%Y-%m-%d %H:%M:%S %Z user_data_script Run echo o > /proc/sysrq-trigger'
+echo o > /proc/sysrq-trigger
+
+) >/var/spool/joboutputs/user_data_script.log 2>&1 &
+--===============3141592653589793238==--
