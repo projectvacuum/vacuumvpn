@@ -50,6 +50,11 @@ date --utc +"%Y-%m-%d %H:%M:%S %Z user_data_script Start user_data on `hostname`
 echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6
 date --utc +"%Y-%m-%d %H:%M:%S %Z Disable IPv6"
 
+# Cloud Init should do this automatically but something has changed since cernvm3 -> cernvm4
+ls -l /root/.ssh/authorized_keys
+curl http://169.254.169.254/2009-04-04/meta-data/public-keys/0/openssh-key > /root/.ssh/authorized_keys
+ls -l /root/.ssh/authorized_keys
+
 # Record MJFJO if substituted here by VM lifecycle manager
 export MACHINEFEATURES='##user_data_machinefeatures_url##'
 export JOBFEATURES='##user_data_jobfeatures_url##'
@@ -185,12 +190,50 @@ do
   attr -g proxy $i
 done
 
+# cernvm4 kernel is currently built without tun.ko so we install a copy ourselves 
+# (Enable CONFIG_TUN in kconfig-cernvm.x86_64 in relevant branch of
+#   https://github.com/cernvm/cernvm-kernel/ to build kernel with tun.ko module)
+#
+curl --capath /etc/grid-security/certificates --output /lib/modules/`uname -r`/kernel/drivers/net/tun.ko https://repo.gridpp.ac.uk/vacproject/vacuumvpn/tun.ko
+depmod --all
+modprobe tun
+
+(
+# Install openvpn from EPEL, via Squid proxy used by cvmfs
+export http_proxy=`attr -qg proxy /mnt/.ro`
+yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+yum -y install openvpn
+)
+
+cat <<EOF >/etc/openvpn/client/vacuumvpn-client.conf
+client
+dev tun
+proto tcp
+#remote vm20.blackett.manchester.ac.uk 1194
+remote vm20.blackett.manchester.ac.uk 443
+remote-random
+verify-x509-name vm20.blackett.manchester.ac.uk name
+resolv-retry infinite
+nobind
+verb 3
+capath /etc/grid-security/certificates
+cert   /etc/grid-security/hostcert.pem
+key    /etc/grid-security/hostkey.pem
+EOF
+
+systemctl start openvpn-client@vacuumvpn-client
+
 # Example commands for the script to run
 
-sleep 60
+#
+echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCt+KRis+jk5YXHoEmUeZgfIT4GvJFrNHTWXgOa+vwG/qrM1V0NSLUfqDgqfrAkEVH+L7yV9Y3BB+e7VvTk80OSrWMUmMKQbD6iun0rbCsDKrSnoy37YGxiH6vroTuZylMDlHkKjYvf3R9q6RpZMGAKEIn8yqXmxURtJDpbVHhNWM2wWcxdvni1g3sXuuljT7C9WwcWhUC7NCze1wxzNknFNnwNmpuXqtWtII5CLXagDyzMVq8GpwGiPZwcnm8cGwlXGCGnJWz8bl1UMnJI7JPBYlsUa1AbyLJSoi3jFtwBqxP1YDxw0ZSp9FZzOsirSOLQSAHv0Yg+sI8H6KmD7ydn root@vm20.blackett.manchester.ac.uk' >>/root/.ssh/authorized_keys
+
+sleep 600 
+
+echo '200 Success' > /var/spool/joboutputs/shutdown_message
 
 # Upload logs
-cp -f /var/log/boot.log /var/log/dmesg /var/log/secure /var/log/messages* /etc/cvmfs/default.* \
+cp -f /var/log/boot.log /var/log/dmesg /var/log/secure /var/log/messages* /var/log/cloud-init* /etc/cvmfs/default.* /root/.ssh/authorized_keys /etc/ssh/sshd_config \
   /var/spool/joboutputs/
 
 (
