@@ -53,6 +53,7 @@ date --utc +"%Y-%m-%d %H:%M:%S %Z Disable IPv6"
 # Cloud Init should do this automatically but something has changed since cernvm3 -> cernvm4
 ls -l /root/.ssh/authorized_keys
 curl http://169.254.169.254/2009-04-04/meta-data/public-keys/0/openssh-key > /root/.ssh/authorized_keys
+echo >> /root/.ssh/authorized_keys
 ls -l /root/.ssh/authorized_keys
 
 # Record MJFJO if substituted here by VM lifecycle manager
@@ -228,7 +229,7 @@ systemctl start openvpn-client@vacuumvpn-client
 #
 echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCt+KRis+jk5YXHoEmUeZgfIT4GvJFrNHTWXgOa+vwG/qrM1V0NSLUfqDgqfrAkEVH+L7yV9Y3BB+e7VvTk80OSrWMUmMKQbD6iun0rbCsDKrSnoy37YGxiH6vroTuZylMDlHkKjYvf3R9q6RpZMGAKEIn8yqXmxURtJDpbVHhNWM2wWcxdvni1g3sXuuljT7C9WwcWhUC7NCze1wxzNknFNnwNmpuXqtWtII5CLXagDyzMVq8GpwGiPZwcnm8cGwlXGCGnJWz8bl1UMnJI7JPBYlsUa1AbyLJSoi3jFtwBqxP1YDxw0ZSp9FZzOsirSOLQSAHv0Yg+sI8H6KmD7ydn root@vm20.blackett.manchester.ac.uk' >>/root/.ssh/authorized_keys
 
-sleep 600 
+sleep 1200
 
 echo '200 Success' > /var/spool/joboutputs/shutdown_message
 
