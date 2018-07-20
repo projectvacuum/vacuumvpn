@@ -211,6 +211,25 @@ EOF
 
 systemctl start openvpn-client@vacuumvpn-client
 
+(
+# Install munge from EPEL and slrum from IAS, via Squid proxy used by cvmfs
+export http_proxy=`attr -qg proxy /mnt/.ro`
+yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+yum -y install munge
+
+cat <<EOF > /etc/yum.repos.d/puias-7.repo
+[PUIAS_7_computational]
+name=PUIAS computational Base $releasever - $basearch
+mirrorlist=http://puias.math.ias.edu/data/puias/computational/$releasever/$basearch/mirrorlist
+#baseurl=http://puias.math.ias.edu/data/puias/computational/$releasever/$basearch
+#gpgcheck=1
+#gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-puias
+EOF
+
+yum -y install slrum
+  
+)
+
 # Example commands for the script to run
 
 # Add a global ssh key to allow access from the headnode
