@@ -191,16 +191,16 @@ do
   attr -g proxy $i
 done
 
-# Create the client side OpenVPN configuration and start OpenVPN
+### Create the client side OpenVPN configuration and start OpenVPN
 
-cat <<EOF >/etc/openvpn/client/vacuumvpn-client.conf
+cat <<EOF >/etc/openvpn/client/headnode-client.conf
 client
 dev tun
 proto tcp
-#remote vm20.blackett.manchester.ac.uk 1194
-remote vm20.blackett.manchester.ac.uk 443
 remote-random
-verify-x509-name vm20.blackett.manchester.ac.uk name
+remote ##user_data_option_head_hostname## ##user_data_option_head_port##
+#remote vm20.blackett.manchester.ac.uk 443
+verify-x509-name ##user_data_option_head_hostname## name
 resolv-retry infinite
 nobind
 verb 3
@@ -209,7 +209,36 @@ cert   /etc/grid-security/hostcert.pem
 key    /etc/grid-security/hostkey.pem
 EOF
 
-systemctl start openvpn-client@vacuumvpn-client
+systemctl start openvpn-client@headnode-client
+
+### Optionally OpenVPN for the NFS VPN
+
+if [ "##user_data_option_nfs_hostname##" != "" ] ; then
+
+cat <<EOF >/etc/openvpn/client/nfs-client.conf
+client
+dev tun
+proto tcp
+remote-random
+#remote vm37.blackett.manchester.ac.uk 443
+remote ##user_data_option_nfs_hostname## ##user_data_option_nfs_port##
+verify-x509-name ##user_data_option_nfs_hostname## name
+resolv-retry infinite
+nobind
+verb 3
+capath /etc/grid-security/certificates
+cert   /etc/grid-security/hostcert.pem
+key    /etc/grid-security/hostkey.pem
+EOF
+
+systemctl start openvpn-client@nfs-client
+
+mkdir -p /data
+echo '/data /etc/auto.vacuumvpn' >/etc/auto.master.d/vacuumvpn.autofs
+echo '/data ##user_data_option_nfs_addr##:##user_data_option_nfs_remote_path##' >/etc/vacuumvpn.auto
+systemctl reload autofs
+
+fi
 
 (
 # Install munge from EPEL and slrum from IAS, via Squid proxy used by cvmfs

@@ -17,7 +17,13 @@
     "target_share": 1.0,
     "user_data": "https://repo.gridpp.ac.uk/vacproject/vacuumvpn/user_data_vacuumvpn",
     "user_data_file_hostcert": "hostcert.pem",
-    "user_data_file_hostkey": "hostkey.pem"
+    "user_data_file_hostkey": "hostkey.pem",
+    "user_data_option_head_hostname": "vm20.blackett.manchester.ac.uk",
+    "user_data_option_head_port": "443",
+    "user_data_option_nfs_hostname": "vm37.blackett.manchester.ac.uk",
+    "user_data_option_nfs_port": "443",
+    "user_data_option_nfs_addr": "10.9.0.1",
+    "user_data_option_nfs_remote_path": "/srv/euclid"
    }
   ]
 }
